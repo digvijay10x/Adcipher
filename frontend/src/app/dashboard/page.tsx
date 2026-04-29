@@ -12,7 +12,7 @@ import { useUser } from "@/hooks/useUser";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const { dbUser } = useUser();
+  const { user: dbUser } = useUser();
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [loading, setLoading] = useState(true);
