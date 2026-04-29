@@ -4,8 +4,8 @@ import {
   getAnalysisById,
   createAnalysis,
   deleteAnalysis,
-  streamAnalysis,
-  streamAdCopy,
+  streamPipeline,
+  streamGenerateCopy,
 } from "../controllers/analysis.controller";
 
 const router = Router();
@@ -14,7 +14,7 @@ router.get("/:userId", getAnalyses);
 router.get("/detail/:id", getAnalysisById);
 router.post("/", createAnalysis);
 router.delete("/:id", deleteAnalysis);
-router.post("/stream", streamAnalysis);
-router.post("/generate-copy", streamAdCopy);
+router.post("/pipeline", streamPipeline);
+router.post("/generate-copy", streamGenerateCopy);
 
 export default router;

@@ -19,16 +19,16 @@ export const getCompetitors = async (req: Request, res: Response) => {
 
 export const addCompetitor = async (req: Request, res: Response) => {
   try {
-    const { domain, name, userId } = req.body;
+    const { brand, name, userId } = req.body;
 
-    if (!domain || !userId) {
-      return res.status(400).json({ error: "Domain and userId are required" });
+    if (!brand || !userId) {
+      return res.status(400).json({ error: "Brand and userId are required" });
     }
 
     const competitor = await prisma.competitor.create({
       data: {
-        domain,
-        name: name || domain,
+        brand,
+        name: name || brand,
         userId,
       },
     });

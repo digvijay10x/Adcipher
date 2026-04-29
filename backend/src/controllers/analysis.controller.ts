@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../config/db";
-import { analyzeAdsWithStreaming } from "../services/claude.service";
-import { generateAdCopyWithStreaming } from "../services/adcopy.service";
+import { runPipeline } from "../services/pipeline";
 
 export const getAnalyses = async (req: Request, res: Response) => {
   try {
@@ -41,10 +40,6 @@ export const createAnalysis = async (req: Request, res: Response) => {
     const { userId, title, hooks, saturatedAngles, gaps, counterStrategy } =
       req.body;
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
-    }
-
     const analysis = await prisma.analysis.create({
       data: {
         userId,
@@ -76,75 +71,72 @@ export const deleteAnalysis = async (req: Request, res: Response) => {
   }
 };
 
-export const streamAnalysis = async (req: Request, res: Response) => {
+export const streamPipeline = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
+    const { userId, brands } = req.body;
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
+    if (!userId || !brands || !brands.length) {
+      return res.status(400).json({ error: "userId and brands are required" });
     }
-
-    const competitors = await prisma.competitor.findMany({
-      where: { userId },
-      include: { ads: true },
-    });
-
-    if (competitors.length === 0) {
-      return res.status(400).json({ error: "Add competitors first" });
-    }
-
-    const adsData = competitors.flatMap((competitor) =>
-      competitor.ads.length > 0
-        ? competitor.ads.map((ad) => ({
-            competitor: competitor.name || competitor.domain,
-            platform: ad.platform,
-            headline: ad.headline || undefined,
-            primaryText: ad.primaryText || undefined,
-            ctaText: ad.ctaText || undefined,
-          }))
-        : [
-            {
-              competitor: competitor.name || competitor.domain,
-              platform: "unknown",
-              headline: `Competitor: ${competitor.domain}`,
-              primaryText: "No ads collected yet - analyzing based on domain",
-              ctaText: undefined,
-            },
-          ],
-    );
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
-    await analyzeAdsWithStreaming(adsData, res);
+    await runPipeline(userId, brands, res);
 
     res.end();
   } catch (error) {
-    console.error("Stream analysis error:", error);
-    res.status(500).json({ error: "Failed to stream analysis" });
+    console.error("Pipeline error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Pipeline failed" });
+    }
   }
 };
 
-export const streamAdCopy = async (req: Request, res: Response) => {
+export const streamGenerateCopy = async (req: Request, res: Response) => {
   try {
-    const { gaps, counterStrategy } = req.body;
+    const { gaps, strategy } = req.body;
 
-    if (!gaps || !counterStrategy) {
-      return res
-        .status(400)
-        .json({ error: "gaps and counterStrategy are required" });
+    if (!gaps || !strategy) {
+      return res.status(400).json({ error: "gaps and strategy are required" });
     }
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
-    await generateAdCopyWithStreaming(gaps, counterStrategy, res);
+    const Groq = (await import("groq-sdk")).default;
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+    const prompt = `You are a world-class ad copywriter. Generate 3 ad variations based on:
+
+GAPS: ${gaps.join(", ")}
+STRATEGY: ${strategy}
+
+For each ad provide headline (max 40 chars), primaryText (max 125 chars), description (max 30 chars), cta, angle, and platform (meta/google/linkedin).
+
+Return ONLY valid JSON: {"ads":[{...}]}`;
+
+    const stream = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      }
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
-  } catch (error) {
-    console.error("Ad copy generation error:", error);
-    res.status(500).json({ error: "Failed to generate ad copy" });
+  } catch (error: any) {
+    console.error("Generate copy error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to generate copy" });
+    }
   }
 };
